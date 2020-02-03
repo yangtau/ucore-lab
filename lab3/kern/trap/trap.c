@@ -48,6 +48,17 @@ idt_init(void) {
       *     You don't know the meaning of this instruction? just google it! and check the libs/x86.h to know more.
       *     Notice: the argument of lidt is idt_pd. try to find it!
       */
+    extern uintptr_t __vectors[];
+
+    for (int i = 0; i < 256; i++) {
+        SETGATE(idt[i], 1, KERNEL_CS, __vectors[i], 0);
+    }
+
+    // system call
+    SETGATE(idt[0x80], 1, KERNEL_CS, __vectors[0x80], 3);
+
+    // lidt
+    lidt(&idt_pd);
 }
 
 static const char *
@@ -186,6 +197,11 @@ trap_dispatch(struct trapframe *tf) {
          * (2) Every TICK_NUM cycle, you can print some info using a funciton, such as print_ticks().
          * (3) Too Simple? Yes, I think so!
          */
+        ticks++; // included in clock.h
+        if (ticks == 100) {
+            ticks = 0;
+            print_ticks();
+        }
         break;
     case IRQ_OFFSET + IRQ_COM1:
         c = cons_getc();
@@ -197,8 +213,13 @@ trap_dispatch(struct trapframe *tf) {
         break;
     //LAB1 CHALLENGE 1 : YOUR CODE you should modify below codes.
     case T_SWITCH_TOU:
+        tf->tf_cs = USER_CS;
+        tf->tf_ds = tf->tf_ss = tf->tf_es= USER_DS;
+        break;
     case T_SWITCH_TOK:
-        panic("T_SWITCH_** ??\n");
+        tf->tf_cs = KERNEL_CS;
+        tf->tf_ds = tf->tf_ss = tf->tf_es= KERNEL_DS;
+        //panic("T_SWITCH_** ??\n");
         break;
     case IRQ_OFFSET + IRQ_IDE1:
     case IRQ_OFFSET + IRQ_IDE2:
