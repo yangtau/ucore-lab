@@ -69,31 +69,54 @@ vma_create(uintptr_t vm_start, uintptr_t vm_end, uint32_t vm_flags) {
 }
 
 
-// find_vma - find a vma  (vma->vm_start <= addr <= vma_vm_end)
+// find_vma - find a vma  (vma->vm_start <= addr < vma_vm_end)
 struct vma_struct *
 find_vma(struct mm_struct *mm, uintptr_t addr) {
-    struct vma_struct *vma = NULL;
-    if (mm != NULL) {
-        vma = mm->mmap_cache;
-        if (!(vma != NULL && vma->vm_start <= addr && vma->vm_end > addr)) {
-                bool found = 0;
-                list_entry_t *list = &(mm->mmap_list), *le = list;
-                while ((le = list_next(le)) != list) {
-                    vma = le2vma(le, list_link);
-                    if (vma->vm_start<=addr && addr < vma->vm_end) {
-                        found = 1;
-                        break;
-                    }
-                }
-                if (!found) {
-                    vma = NULL;
-                }
+    struct vma_struct *vma;
+
+    if (mm == NULL) {
+        return NULL;
+    }
+
+    if ((vma = mm->mmap_cache) != NULL && vma->vm_start <= addr && vma->vm_end > addr) {
+        return vma;
+    }
+    vma = NULL;
+
+    list_entry_t *le = &mm->mmap_list;
+    while ((le = list_next(le)) != &mm->mmap_list) {
+        vma = le2vma(le, list_link);
+        if (vma->vm_start <= addr && addr < vma->vm_end) {
+            break;    
         }
-        if (vma != NULL) {
-            mm->mmap_cache = vma;
-        }
+        vma = NULL;
+    }
+
+    if (vma != NULL) {
+        mm->mmap_cache = vma;
     }
     return vma;
+//    if (mm != NULL) {
+//        vma = mm->mmap_cache;
+//        if (!(vma != NULL && vma->vm_start <= addr && vma->vm_end > addr)) {
+//                bool found = 0;
+//                list_entry_t *list = &(mm->mmap_list), *le = list;
+//                while ((le = list_next(le)) != list) {
+//                    vma = le2vma(le, list_link);
+//                    if (vma->vm_start <= addr && addr < vma->vm_end) {
+//                        found = 1;
+//                        break;
+//                    }
+//                }
+//                if (!found) {
+//                    vma = NULL;
+//                }
+//        }
+//        if (vma != NULL) {
+//            mm->mmap_cache = vma;
+//        }
+//    }
+//    return vma;
 }
 
 
@@ -113,14 +136,14 @@ insert_vma_struct(struct mm_struct *mm, struct vma_struct *vma) {
     list_entry_t *list = &(mm->mmap_list);
     list_entry_t *le_prev = list, *le_next;
 
-        list_entry_t *le = list;
-        while ((le = list_next(le)) != list) {
-            struct vma_struct *mmap_prev = le2vma(le, list_link);
-            if (mmap_prev->vm_start > vma->vm_start) {
-                break;
-            }
-            le_prev = le;
+    list_entry_t *le = list;
+    while ((le = list_next(le)) != list) {
+        struct vma_struct *mmap_prev = le2vma(le, list_link);
+        if (mmap_prev->vm_start > vma->vm_start) {
+            break;
         }
+        le_prev = le;
+    }
 
     le_next = list_next(le_prev);
 
@@ -304,19 +327,18 @@ volatile unsigned int pgfault_num=0;
 int
 do_pgfault(struct mm_struct *mm, uint32_t error_code, uintptr_t addr) {
     int ret = -E_INVAL;
-    //try to find a vma which include addr
-    struct vma_struct *vma = find_vma(mm, addr);
+    struct vma_struct *vma;
 
     pgfault_num++;
-    //If the addr is in the range of a mm's vma?
-    if (vma == NULL || vma->vm_start > addr) {
+
+    //try to find a vma which include addr
+    if ((vma = find_vma(mm, addr)) == NULL) { /*|| vma->vm_start > addr */
         cprintf("not valid addr %x, and  can not find it in vma\n", addr);
         goto failed;
     }
+
     //check the error_code
     switch (error_code & 3) {
-    default:
-            /* error code flag : default is 3 ( W/R=1, P=1): write, present */
     case 2: /* error code flag : (W/R=1, P=0): write, not present */
         if (!(vma->vm_flags & VM_WRITE)) {
             cprintf("do_pgfault failed: error code flag = write AND not present, but the addr's vma cannot write\n");
@@ -331,13 +353,19 @@ do_pgfault(struct mm_struct *mm, uint32_t error_code, uintptr_t addr) {
             cprintf("do_pgfault failed: error code flag = read AND not present, but the addr's vma cannot read or exec\n");
             goto failed;
         }
+        break;
+    default: /* error code flag : default is 3 ( W/R=1, P=1): write, present */
+        cprintf("do_pgfault failed: error code flag = write AND present\n");
+        goto failed;
     }
+
     /* IF (write an existed addr ) OR
      *    (write an non_existed addr && addr is writable) OR
      *    (read  an non_existed addr && addr is readable)
      * THEN
      *    continue process
      */
+
     uint32_t perm = PTE_U;
     if (vma->vm_flags & VM_WRITE) {
         perm |= PTE_W;
@@ -346,7 +374,7 @@ do_pgfault(struct mm_struct *mm, uint32_t error_code, uintptr_t addr) {
 
     ret = -E_NO_MEM;
 
-    pte_t *ptep=NULL;
+    pte_t *ptep = NULL;
     /*LAB3 EXERCISE 1: YOUR CODE
     * Maybe you want help comment, BELOW comments can help you finish the code
     *
@@ -364,14 +392,16 @@ do_pgfault(struct mm_struct *mm, uint32_t error_code, uintptr_t addr) {
     *   mm->pgdir : the PDT of these vma
     *
     */
-#if 0
     /*LAB3 EXERCISE 1: YOUR CODE*/
-    ptep = ???              //(1) try to find a pte, if pte's PT(Page Table) isn't existed, then create a PT.
-    if (*ptep == 0) {
-                            //(2) if the phy addr isn't exist, then alloc a page & map the phy addr with logical addr
-
+    //(1) try to find a pte, if pte's PT(Page Table) isn't existed, then create a PT.
+    if ((ptep = get_pte(mm->pgdir, addr, 1)) == NULL) {
+        cprintf("do_pgfault failed: get_pte failed\n");
+        goto failed;
     }
-    else {
+    if (*ptep == 0) {
+        //(2) if the phy addr isn't exist, then alloc a page & map the phy addr with logical addr
+        pgdir_alloc_page(mm->pgdir, addr, perm); // redundant call to get_pte
+    } else {
     /*LAB3 EXERCISE 2: YOUR CODE
     * Now we think this pte is a  swap entry, we should load data from disk to a page with phy addr,
     * and map the phy addr with logical addr, trigger swap manager to record the access situation of this page.
@@ -395,7 +425,7 @@ do_pgfault(struct mm_struct *mm, uint32_t error_code, uintptr_t addr) {
             goto failed;
         }
    }
-#endif
+
    ret = 0;
 failed:
     return ret;
