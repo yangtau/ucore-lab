@@ -236,14 +236,10 @@ qemu-nox: $(UCOREIMG) $(SWAPIMG)
 TERMINAL := gnome-terminal
 
 debug: $(UCOREIMG) $(SWAPIMG)
-	$(V)$(QEMU) -S -s -parallel stdio $(QEMUOPTS) -serial null &
-	$(V)sleep 2
-	$(V)$(TERMINAL) -e "$(GDB) -q -x tools/gdbinit"
+	$(V)$(QEMU) -S -s -parallel stdio $(QEMUOPTS) -serial null
 
 debug-nox: $(UCOREIMG) $(SWAPIMG)
 	$(V)$(QEMU) -S -s -serial mon:stdio $(QEMUOPTS) -nographic &
-	$(V)sleep 2
-	$(V)$(TERMINAL) -e "$(GDB) -q -x tools/gdbinit"
 
 .PHONY: grade touch
 

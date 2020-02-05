@@ -400,7 +400,7 @@ do_pgfault(struct mm_struct *mm, uint32_t error_code, uintptr_t addr) {
     }
     if (*ptep == 0) {
         //(2) if the phy addr isn't exist, then alloc a page & map the phy addr with logical addr
-        pgdir_alloc_page(mm->pgdir, addr, perm); // redundant call to get_pte
+        pgdir_alloc_page(mm->pgdir, addr, perm); // FIXME: redundant call to get_pte
     } else {
     /*LAB3 EXERCISE 2: YOUR CODE
     * Now we think this pte is a  swap entry, we should load data from disk to a page with phy addr,
@@ -415,12 +415,18 @@ do_pgfault(struct mm_struct *mm, uint32_t error_code, uintptr_t addr) {
     */
         if(swap_init_ok) {
             struct Page *page=NULL;
-                                    //(1）According to the mm AND addr, try to load the content of right disk page
-                                    //    into the memory which page managed.
-                                    //(2) According to the mm, addr AND page, setup the map of phy addr <---> logical addr
-                                    //(3) make the page swappable.
-        }
-        else {
+            //(1)According to the mm AND addr, try to load the content of right disk page
+            //   into the memory which page managed.
+            //(2)According to the mm, addr AND page, setup the map of phy addr <---> logical addr
+            //(3)make the page swappable.
+            if (swap_in(mm, addr, &page) != 0) {
+                cprintf("do_pgfault failed: swap_in failed\n");
+                goto failed;
+            }
+            page_insert(mm->pgdir, page, addr, perm);
+            page->pra_vaddr = addr;
+            swap_map_swappable(mm, addr, page, 1);
+        } else {
             cprintf("no swap_init_ok but ptep is %x, failed\n",*ptep);
             goto failed;
         }
