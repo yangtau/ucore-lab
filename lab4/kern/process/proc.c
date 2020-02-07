@@ -107,7 +107,7 @@ alloc_proc(void) {
         proc->state = PROC_UNINIT;
         proc->kstack = 0;
         proc->need_resched = 0;
-        proc->parent = current;
+        proc->parent = NULL;
         proc->mm = NULL;
         proc->tf = NULL;
         proc->flags = 0;
@@ -265,7 +265,7 @@ copy_thread(struct proc_struct *proc, uintptr_t esp, struct trapframe *tf) {
     proc->tf->tf_esp = esp;
     proc->tf->tf_eflags |= FL_IF;
 
-    proc->context.eip = (uintptr_t)forkret;
+    proc->context.eip = (uintptr_t)forkrets; // TODO
     proc->context.esp = (uintptr_t)(proc->tf);
 }
 
@@ -304,6 +304,7 @@ do_fork(uint32_t clone_flags, uintptr_t stack, struct trapframe *tf) {
 
     // 1. call alloc_proc to allocate a proc_struct
     if ((proc = alloc_proc()) == NULL) goto bad_fork_cleanup_proc;
+    proc->parent = current;
     // 2. call setup_kstack to allocate a kernel stack for child process
     if (setup_kstack(proc) != 0) goto bad_fork_cleanup_proc;
     // 3. call copy_mm to dup OR share mm according clone_flag

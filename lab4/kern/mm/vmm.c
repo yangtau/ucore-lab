@@ -377,7 +377,7 @@ do_pgfault(struct mm_struct *mm, uint32_t error_code, uintptr_t addr) {
     if (*ptep == 0) {
         //(2) if the phy addr isn't exist, then alloc a page & map the phy addr with logical addr
         if (pgdir_alloc_page(mm->pgdir, addr, perm) == NULL) {// FIXME: redundant call to get_pte
-            printf("do_pgfault failed: pddir_alloc_page\n");
+            cprintf("do_pgfault failed: pddir_alloc_page\n");
         } 
     } else {
     /*LAB3 EXERCISE 2: YOUR CODE
