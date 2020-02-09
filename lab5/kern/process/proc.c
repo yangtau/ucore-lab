@@ -121,6 +121,8 @@ alloc_proc(void) {
      *       uint32_t wait_state;                        // waiting state
      *       struct proc_struct *cptr, *yptr, *optr;     // relations between processes
 	 */
+        proc->cptr = proc->yptr = proc->optr = NULL;
+        proc->wait_state = 0;
     }
     return proc;
 }
@@ -404,7 +406,6 @@ do_fork(uint32_t clone_flags, uintptr_t stack, struct trapframe *tf) {
 
     // 1. call alloc_proc to allocate a proc_struct
     if ((proc = alloc_proc()) == NULL) goto bad_fork_cleanup_proc;
-    proc->parent = current;
     // 2. call setup_kstack to allocate a kernel stack for child process
     if (setup_kstack(proc) != 0) goto bad_fork_cleanup_proc;
     // 3. call copy_mm to dup OR share mm according clone_flag
@@ -417,19 +418,15 @@ do_fork(uint32_t clone_flags, uintptr_t stack, struct trapframe *tf) {
     // 4. call copy_thread to setup tf & context in proc_struct
     copy_thread(proc, stack, tf); // TODO: esp
     // 5. insert proc_struct into hash_list && proc_list
-    bool intr_flag;
-    local_intr_save(intr_flag); // NOTE: !important
-    {
-        proc->pid = get_pid();
-        hash_proc(proc);
-        list_add(&proc_list, &(proc->list_link));
-        nr_process ++;
-    }
-    local_intr_restore(intr_flag);
-    // 6. call wakeup_proc to make the new child process RUNNABLE
-    wakeup_proc(proc);
-    // 7. set ret vaule using child proc's pid
-    ret = proc->pid;
+    // bool intr_flag;
+    // local_intr_save(intr_flag); // NOTE: !important
+    // {
+    //     proc->pid = get_pid();
+    //     hash_proc(proc);
+    //     // list_add(&proc_list, &(proc->list_link));
+    //     // nr_process ++;
+    // }
+    // local_intr_restore(intr_flag);
 	//LAB5 YOUR CODE : (update LAB4 steps)
    /* Some Functions
     *    set_links:  set the relation links of process.  ALSO SEE: remove_links:  lean the relation links of process 
@@ -437,7 +434,25 @@ do_fork(uint32_t clone_flags, uintptr_t stack, struct trapframe *tf) {
 	*    update step 1: set child proc's parent to current process, make sure current process's wait_state is 0
 	*    update step 5: insert proc_struct into hash_list && proc_list, set the relation links of process
     */
-	
+    // TODO: make sure current process's wait_state is 0
+    proc->parent = current;
+
+    bool intr_flag;
+    local_intr_save(intr_flag); // NOTE: !important
+    {
+        proc->pid = get_pid();
+        set_links(proc);
+        hash_proc(proc);
+        // list_add(&proc_list, &(proc->list_link));
+        // nr_process ++;
+    }
+    local_intr_restore(intr_flag);
+
+    // 6. call wakeup_proc to make the new child process RUNNABLE
+    wakeup_proc(proc);
+    // 7. set ret vaule using child proc's pid
+    ret = proc->pid;
+
 fork_out:
     return ret;
 
@@ -636,6 +651,11 @@ load_icode(unsigned char *binary, size_t size) {
      *          tf_eip should be the entry point of this binary program (elf->e_entry)
      *          tf_eflags should be set to enable computer to produce Interrupt
      */
+    tf->tf_cs = USER_CS;
+    tf->tf_ds = tf->tf_es = tf->tf_ss = USER_DS;
+    tf->tf_esp = USTACKTOP;
+    tf->tf_eip = elf->e_entry;
+    tf->tf_eflags |= FL_IF; // enable interrupt
     ret = 0;
 out:
     return ret;

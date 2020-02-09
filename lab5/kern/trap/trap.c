@@ -60,7 +60,7 @@ idt_init(void) {
     }
 
     // system call
-    SETGATE(idt[0x80], 1, KERNEL_CS, __vectors[0x80], 3);
+    SETGATE(idt[T_SYSCALL], 1, KERNEL_CS, __vectors[T_SYSCALL], 3);
 
     // lidt
     lidt(&idt_pd);
@@ -241,6 +241,7 @@ trap_dispatch(struct trapframe *tf) {
         /* you should upate you lab1 code (just add ONE or TWO lines of code):
          *    Every TICK_NUM cycle, you should set current process's current->need_resched = 1
          */
+        current->need_resched = 1;
   
         break;
     case IRQ_OFFSET + IRQ_COM1:
