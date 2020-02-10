@@ -298,7 +298,10 @@ setup_pgdir(struct mm_struct *mm) {
         return -E_NO_MEM;
     }
     pde_t *pgdir = page2kva(page);
-    memcpy(pgdir, boot_pgdir, PGSIZE);
+    // NOTE: important! A user process will copy the pgdir of kernel, which
+    // means a user process in kernel mode has the same address map as the
+    // kernel.
+    memcpy(pgdir, boot_pgdir, PGSIZE); 
     pgdir[PDX(VPT)] = PADDR(pgdir) | PTE_P | PTE_W;
     mm->pgdir = pgdir;
     return 0;
