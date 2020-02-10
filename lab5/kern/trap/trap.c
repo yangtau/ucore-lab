@@ -56,11 +56,11 @@ idt_init(void) {
     extern uintptr_t __vectors[];
 
     for (int i = 0; i < 256; i++) {
-        SETGATE(idt[i], 1, KERNEL_CS, __vectors[i], 0);
+        SETGATE(idt[i], 1, GD_KTEXT, __vectors[i], 0);
     }
 
     // system call
-    SETGATE(idt[T_SYSCALL], 1, KERNEL_CS, __vectors[T_SYSCALL], 3);
+    SETGATE(idt[T_SYSCALL], 1, GD_KTEXT, __vectors[T_SYSCALL], 3);
 
     // lidt
     lidt(&idt_pd);
@@ -234,6 +234,7 @@ trap_dispatch(struct trapframe *tf) {
         ticks++; // included in clock.h
         if (ticks == 100) {
             ticks = 0;
+            current->need_resched = 1;
             print_ticks();
         }
 
@@ -241,7 +242,7 @@ trap_dispatch(struct trapframe *tf) {
         /* you should upate you lab1 code (just add ONE or TWO lines of code):
          *    Every TICK_NUM cycle, you should set current process's current->need_resched = 1
          */
-        current->need_resched = 1;
+        
   
         break;
     case IRQ_OFFSET + IRQ_COM1:
