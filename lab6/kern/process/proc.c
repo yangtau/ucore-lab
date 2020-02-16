@@ -133,6 +133,10 @@ alloc_proc(void) {
      *     uint32_t lab6_stride;                       // FOR LAB6 ONLY: the current stride of the process
      *     uint32_t lab6_priority;                     // FOR LAB6 ONLY: the priority of process, set by lab6_set_priority(uint32_t)
      */
+        proc->rq = NULL;
+        list_init(&proc->run_link);
+        proc->lab6_priority = 1;
+        skew_heap_init(&proc->lab6_run_pool);
     }
     return proc;
 }

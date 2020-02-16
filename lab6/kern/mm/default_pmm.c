@@ -195,6 +195,7 @@ default_free_pages(struct Page *base, size_t n) {
     }
 
     nr_free += n;
+    // list_add(&free_list, &(base->page_link));
 }
 
 static size_t

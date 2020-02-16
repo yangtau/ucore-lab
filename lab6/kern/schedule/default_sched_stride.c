@@ -10,7 +10,7 @@
 
 /* You should define the BigStride constant here*/
 /* LAB6: YOUR CODE */
-#define BIG_STRIDE   1<<20 /* you should give a value, and is ??? */
+#define BIG_STRIDE   (1<<10) /* you should give a value, and is ??? */
 
 /* The compare function for two skew_heap_node_t's and the
  * corresponding procs*/
@@ -73,7 +73,9 @@ stride_enqueue(struct run_queue *rq, struct proc_struct *proc) {
       * (4) increase rq->proc_num
       */
     rq->lab6_run_pool = skew_heap_insert(rq->lab6_run_pool, &proc->lab6_run_pool, proc_stride_comp_f);
-    proc->time_slice = rq->max_time_slice;
+    if (proc->time_slice <= 0 || proc->time_slice > rq-> max_time_slice) {
+        proc->time_slice = rq->max_time_slice;
+    }
     proc->rq = rq;
     rq->proc_num++;            
 }
@@ -136,6 +138,7 @@ stride_pick_next(struct run_queue *rq) {
 static void
 stride_proc_tick(struct run_queue *rq, struct proc_struct *proc) {
      /* LAB6: YOUR CODE */
+     proc->time_slice--;
      if (proc->time_slice <= 0) {
           proc->need_resched = 1;
      }

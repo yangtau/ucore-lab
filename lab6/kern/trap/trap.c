@@ -57,11 +57,13 @@ idt_init(void) {
     extern uintptr_t __vectors[];
 
     for (int i = 0; i < 256; i++) {
-        SETGATE(idt[i], 1, GD_KTEXT, __vectors[i], 0);
+        // 0 indicates interrupt gate
+        SETGATE(idt[i], 0, KERNEL_CS, __vectors[i], DPL_KERNEL);
     }
 
     // system call
-    SETGATE(idt[T_SYSCALL], 1, GD_KTEXT, __vectors[T_SYSCALL], 3);
+    // 1 indicates trap gate
+    SETGATE(idt[T_SYSCALL], 1, KERNEL_CS, __vectors[T_SYSCALL], DPL_USER);
 
     // lidt
     lidt(&idt_pd);
@@ -239,10 +241,10 @@ trap_dispatch(struct trapframe *tf) {
         ticks++; // included in clock.h
         if (ticks == 100) {
             ticks = 0;
-            current->need_resched = 1;
+            // current->need_resched = 1;
             // print_ticks();
         }
-
+        sched_class_proc_tick(current);
         /* LAB6 YOUR CODE */
         /* you should upate you lab5 code
          * IMPORTANT FUNCTIONS:
