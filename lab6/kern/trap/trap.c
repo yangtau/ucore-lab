@@ -240,7 +240,7 @@ trap_dispatch(struct trapframe *tf) {
          */
         ticks++; // included in clock.h
         if (ticks == 100) {
-            ticks = 0;
+            // ticks = 0;
             // current->need_resched = 1;
             // print_ticks();
         }
