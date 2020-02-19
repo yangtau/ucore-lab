@@ -137,7 +137,10 @@ stride_pick_next(struct run_queue *rq) {
      */
     if (rq->proc_num == 0) return NULL;
     struct proc_struct *proc = le2proc(rq->lab6_run_pool, lab6_run_pool);
-    proc->lab6_stride += BIG_STRIDE/proc->lab6_priority;
+    if (proc->lab6_priority != 0)
+        proc->lab6_stride += BIG_STRIDE/proc->lab6_priority;
+    else
+        proc->lab6_stride += BIG_STRIDE;
 #ifdef __DEFAULT_SCHED_STRIDE_DEBUG
     cprintf("##stride_pick_next: pid %d", proc->pid);
 #endif
@@ -161,11 +164,11 @@ stride_proc_tick(struct run_queue *rq, struct proc_struct *proc) {
      }
 }
 
-// struct sched_class default_sched_class = {
-//      .name = "stride_scheduler",
-//      .init = stride_init,
-//      .enqueue = stride_enqueue,
-//      .dequeue = stride_dequeue,
-//      .pick_next = stride_pick_next,
-//      .proc_tick = stride_proc_tick,
-// };
+struct sched_class default_sched_class = {
+     .name = "stride_scheduler",
+     .init = stride_init,
+     .enqueue = stride_enqueue,
+     .dequeue = stride_dequeue,
+     .pick_next = stride_pick_next,
+     .proc_tick = stride_proc_tick,
+};
