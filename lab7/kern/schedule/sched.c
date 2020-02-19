@@ -163,6 +163,9 @@ run_timer_list(void) {
                     warn("process %d's wait_state == 0.\n", proc->pid);
                 }
                 wakeup_proc(proc);
+                // TODO: directly remove timer in the list. Because 
+                // time->expires==0, here `del_timer` has no effection, if I add
+                // list_del_init(&timer->timer_link).
                 del_timer(timer);
                 if (le == &timer_list) {
                     break;

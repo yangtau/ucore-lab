@@ -144,6 +144,7 @@ int philosopher_using_semaphore(void * arg) /* i：哲学家号码，从0到N-1 
  *         self[i].wait();
  *   }
  *
+ *
  *   void putdown(int i) {
  *      state[i] = thinking;
  *      if ((state[(i+4)%5] == hungry) && (state[(i+3)%5] != eating)) {
@@ -160,6 +161,20 @@ int philosopher_using_semaphore(void * arg) /* i：哲学家号码，从0到N-1 
  *      for (int i = 0; i < 5; i++)
  *         state[i] = thinking;
  *   }
+ *
+ *   ## My Solution
+ *   void pickup(int i) {
+ *      while ((state[(i+4)%5] == eating) || (state[(i+1)%5] == eating))
+ *          self[i].wait()
+ *      state[i] = eating;
+ *   }
+ *
+ *   void putdown(int i) {
+ *      state[i] = thinking;
+ *      self[(i+4)%5].signal();
+ *      self[(i+1)%5].signal();
+ *   }
+ *
  * }
  */
 
@@ -179,25 +194,43 @@ void phi_test_condvar (i) {
 
 
 void phi_take_forks_condvar(int i) {
-     down(&(mtp->mutex));
+    down(&(mtp->mutex));
 //--------into routine in monitor--------------
-     // LAB7 EXERCISE1: YOUR CODE
-     // I am hungry
-     // try to get fork
+    // LAB7 EXERCISE1: YOUR CODE
+    // I am hungry
+    // try to get fork
+    // 
+   /*
+   state_condvar[i] = HUNGRY;
+   if (state_condvar[(i+1)%N] == EATING || state_condvar[(i+4)%N] == EATING)
+       cond_wait(&mtp->cv[i]);
+   else
+       state_condvar[i] = EATING;
+    */
+   state_condvar[i] = HUNGRY;
+   while (state_condvar[(i+1)%N] == EATING || state_condvar[(i+4)%N] == EATING)
+       cond_wait(&mtp->cv[i]);
 //--------leave routine in monitor--------------
-      if(mtp->next_count>0)
-         up(&(mtp->next));
-      else
-         up(&(mtp->mutex));
+    if (mtp->next_count > 0)
+        up(&(mtp->next));
+    else
+        up(&(mtp->mutex));
 }
 
 void phi_put_forks_condvar(int i) {
      down(&(mtp->mutex));
-
 //--------into routine in monitor--------------
      // LAB7 EXERCISE1: YOUR CODE
      // I ate over
      // test left and right neighbors
+    /*
+    state_condvar[i] = THINKING;
+    phi_test_condvar((i+1)%N);
+    phi_test_condvar((i+4)%N);
+    */
+    state_condvar[i] = THINKING;
+    cond_signal(&mtp->cv[(i+1)%N]);
+    cond_signal(&mtp->cv[(i+4)%N]);
 //--------leave routine in monitor--------------
      if(mtp->next_count>0)
         up(&(mtp->next));
@@ -243,14 +276,14 @@ void check_sync(void){
     }
 
     //check condition variable
-    monitor_init(&mt, N);
-    for(i=0;i<N;i++){
-        state_condvar[i]=THINKING;
-        int pid = kernel_thread(philosopher_using_condvar, (void *)i, 0);
-        if (pid <= 0) {
-            panic("create No.%d philosopher_using_condvar failed.\n");
-        }
-        philosopher_proc_condvar[i] = find_proc(pid);
-        set_proc_name(philosopher_proc_condvar[i], "philosopher_condvar_proc");
-    }
+//     monitor_init(&mt, N);
+//     for(i=0;i<N;i++){
+//         state_condvar[i]=THINKING;
+//         int pid = kernel_thread(philosopher_using_condvar, (void *)i, 0);
+//         if (pid <= 0) {
+//             panic("create No.%d philosopher_using_condvar failed.\n");
+//         }
+//         philosopher_proc_condvar[i] = find_proc(pid);
+//         set_proc_name(philosopher_proc_condvar[i], "philosopher_condvar_proc");
+//     }
 }
