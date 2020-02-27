@@ -438,7 +438,9 @@ sfs_dirent_read_nolock(struct sfs_fs *sfs, struct sfs_inode *sin, int slot, stru
  * @empty_slot: the empty logical index of file entry.
  */
 static int
-sfs_dirent_search_nolock(struct sfs_fs *sfs, struct sfs_inode *sin, const char *name, uint32_t *ino_store, int *slot, int *empty_slot) {
+sfs_dirent_search_nolock(
+        struct sfs_fs *sfs, struct sfs_inode *sin, const char *name, 
+        uint32_t *ino_store, int *slot, int *empty_slot) {
     assert(strlen(name) <= SFS_MAX_FNAME_LEN);
     struct sfs_disk_entry *entry;
     if ((entry = kmalloc(sizeof(struct sfs_disk_entry))) == NULL) {
@@ -587,7 +589,44 @@ sfs_io_nolock(struct sfs_fs *sfs, struct sfs_inode *sin, void *buf, off_t offset
     size_t size, alen = 0;
     uint32_t ino;
     uint32_t blkno = offset / SFS_BLKSIZE;          // The NO. of Rd/Wr begin block
-    uint32_t nblks = endpos / SFS_BLKSIZE - blkno;  // The size of Rd/Wr blocks
+    uint32_t endblkno = endpos / SFS_BLKSIZE;  // The size of Rd/Wr blocks
+
+    size = 0;
+    if (offset % SFS_BLKSIZE != 0) {
+        size = SFS_BLKSIZE - offset % SFS_BLKSIZE;
+        if ((ret = sfs_bmap_load_nolock(sfs, sin, blkno, &ino)) != 0) {
+            goto out;
+        }
+        if ((ret = sfs_buf_op(sfs, buf, size, ino, offset % SFS_BLKSIZE)) != 0) {
+            goto out;
+        }
+        blkno++;
+        alen += size;
+    }
+
+    while (blkno < endblkno) {
+        if ((ret = sfs_bmap_load_nolock(sfs, sin, blkno, &ino)) != 0) {
+            goto out;
+        }
+        if ((ret = sfs_block_op(sfs, buf, blkno, 1)) != 0) {
+            goto out;
+        }
+        alen += SFS_BLKSIZE;
+        blkno++;
+    }
+
+    if ((size = endpos % SFS_BLKSIZE) == 0) {
+        goto out;
+    }
+    if ((ret = sfs_bmap_load_nolock(sfs, sin, endblkno, &ino)) != 0) {
+        goto out;
+    }
+    if ((ret = sfs_buf_op(sfs, buf, size, ino, 0)) != 0) {
+        goto out;
+    }
+    alen += size;
+
+
 
   //LAB8:EXERCISE1 YOUR CODE HINT: call sfs_bmap_load_nolock, sfs_rbuf, sfs_rblock,etc. read different kind of blocks in file
 	/*
