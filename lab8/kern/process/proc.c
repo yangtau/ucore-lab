@@ -565,7 +565,7 @@ do_exit(int error_code) {
     panic("do_exit will not return!! %d.\n", current->pid);
 }
 
-//load_icode_read is used by load_icode in LAB8
+// load_icode_read is used by load_icode in LAB8
 static int
 load_icode_read(int fd, void *buf, size_t len, off_t offset) {
     int ret;
@@ -578,25 +578,150 @@ load_icode_read(int fd, void *buf, size_t len, off_t offset) {
     return 0;
 }
 
+
+static inline int
+load_icode_proghdr(int fd, struct proghdr *ph, struct mm_struct *mm) {
+    int ret = 0;
+
+    if (ph->p_type != ELF_PT_LOAD) {
+        ret = 0;
+        return ret;
+    }
+    if (ph->p_filesz > ph->p_memsz) {
+        ret = -E_INVAL_ELF;
+        return ret;
+    }
+
+    uintptr_t vm_flags = 0, pte_perm = PTE_U;
+    if (ph->p_flags & ELF_PF_R) 
+        vm_flags |= VM_READ;
+    if (ph->p_flags & ELF_PF_W) {
+        vm_flags |= VM_WRITE;
+        pte_perm |= PTE_W;
+    }
+    if (ph->p_flags & ELF_PF_X)
+        vm_flags |= VM_EXEC;
+
+    //    (3.3) call mm_map to build vma related to TEXT/DATA
+    if ((ret = mm_map(mm, ph->p_va, ph->p_memsz, vm_flags, NULL)) != 0) {
+        ret = -E_NO_MEM;
+        return ret;
+    }
+
+    //    (3.4) callpgdir_alloc_page to allocate page for TEXT/DATA, read contents in file
+    //          and copy them into the new allocated pages
+    uintptr_t va, start, end, off, pgp;
+    size_t sz;
+    struct Page *pg;
+
+    start = ph->p_va;
+    end = ph->p_va + ph->p_filesz;
+    va = ROUNDDOWN(start, PGSIZE);
+    off = 0; // offset of file
+
+    while (start < end) {
+        if ((pg=pgdir_alloc_page(mm->pgdir, va, pte_perm)) == NULL) {
+            ret = -E_NO_MEM;
+            return ret;
+        }
+
+        pgp = (uintptr_t) page2kva(pg) + start - va;
+        sz = end-va < PGSIZE ? end-start : PGSIZE-(start-va);
+
+        if ((ret = load_icode_read(fd, (void*) pgp, sz, ph->p_offset+off)) != 0) {
+            return ret;
+        }
+        // may be used in the last loop, set the rest memory of the page to 0
+        // +----+---+
+        // |    |   |
+        // +----+---+
+        // va   end
+        // the memory space after end in the page should be setted to 0
+        pgp = pgp+sz;
+        memset((void*)pgp, 0, ROUNDUP(pgp, PGSIZE)-pgp); 
+
+        va += PGSIZE;
+        start = va;
+        off += sz;
+    }
+
+    // case 1: p_filesz == 0, previous `while` loop is skipped.
+    //         va == ROUNDDOWN(start, PGSIZE)
+    // case 2: p_filesz != 0
+    //         start == va
+
+    //    (3.5) callpgdir_alloc_page to allocate pages for BSS, memset zero in these pages
+    end = ph->p_va + ph->p_memsz;
+    while (start < end) {
+        ret = -E_NO_MEM;
+        // use va, for the case that ph->file_sz == 0
+        if ((pg=pgdir_alloc_page(mm->pgdir, va, pte_perm)) == NULL) {
+            ret = -E_NO_MEM;
+            return ret;
+        }
+
+        pgp = (uintptr_t)page2kva(pg);
+        memset((void*)pgp, 0, PGSIZE); 
+
+        va += PGSIZE;
+        start = va;
+    }
+
+    return 0;
+}
+
+static inline int
+load_icode_setup_arg(int argc, char **kargv, struct mm_struct *mm, uintptr_t *stacktopp) {
+    size_t argvsz = 0;
+    uintptr_t stacktop, pte_perm;
+    size_t totalsz = 0;
+    uint8_t *ptr;
+    char **argv;
+    int i = 0;
+    struct Page *pg;
+    int ret;
+
+    for (i = 0; i < argc; i++) {
+        argvsz += strlen(kargv[i])+1;
+    }
+
+    totalsz = argvsz + sizeof(int) + sizeof(char*)*argc;
+    totalsz = ROUNDUP(totalsz, sizeof(uintptr_t));
+
+    pte_perm = PTE_USER;
+    for (i = 0; i*PGSIZE < totalsz; i++) {
+        if ((pg=pgdir_alloc_page(mm->pgdir, USTACKTOP-(i+1)*PGSIZE, pte_perm)) == NULL) {
+            ret = -E_NO_MEM;
+            return ret;
+        }
+    }
+
+    stacktop = USTACKTOP - totalsz;
+    ptr = (uint8_t *)stacktop;
+    argv = (char **) (ptr + sizeof(int));
+
+    *(int *) ptr = argc;
+    ptr += sizeof(int) + sizeof(char*)*argc;
+
+    for (i = 0; i < argc; i++) {
+        argv[i] = strcpy((char *)ptr, kargv[i]);
+        ptr += strlen(kargv[i]) + 1;
+    }
+
+    *stacktopp = stacktop;
+    return 0;
+}
+
 // load_icode -  called by sys_exec-->do_execve
-  
 static int
 load_icode(int fd, int argc, char **kargv) {
+    assert(argc >= 0 && argc <= EXEC_MAX_ARG_NUM);
     int ret;
     struct mm_struct *mm;
     struct elfhdr elfheader;
     struct proghdr *phdrs;
     size_t pghdrsz;
-    uint32_t vm_flags, pte_perm;
-    /* LAB8:EXERCISE2 YOUR CODE  HINT:how to load the file with handler fd  in to process's memory? how to setup argc/argv?
-     * MACROs or Functions:
-     *  mm_create        - create a mm
-     *  setup_pgdir      - setup pgdir in mm
-     *  load_icode_read  - read raw data content of program file
-     *  mm_map           - build new vma
-     *  pgdir_alloc_page - allocate new memory for  TEXT/DATA/BSS/stack parts
-     *  lcr3             - update Page Directory Addr Register -- CR3
-     */
+    uint32_t vm_flags;
 	// (1) create a new mm for current process
     ret = -E_NO_MEM;
     if ((mm = mm_create()) == NULL) {
@@ -613,113 +738,46 @@ load_icode(int fd, int argc, char **kargv) {
         goto bad_load_icode_free_pgdir;
     }
 
-    ret = -E_INVAL_ELF;
     if (elfheader.e_magic != ELF_MAGIC) {
+        ret = -E_INVAL_ELF;
         goto bad_load_icode_free_pgdir;
     }
 
     //    (3.2) read raw data content in file and resolve proghdr based on info in elfhdr
     pghdrsz = sizeof(struct proghdr) * elfheader.e_phnum;
     phdrs = (struct proghdr *) kmalloc(pghdrsz); 
-    if ((ret = load_icode_read(fd, &elfheader, pghdrsz, elfheader.e_phoff)) != 0) {
+
+    if ((ret = load_icode_read(fd, phdrs, pghdrsz, elfheader.e_phoff)) != 0) {
         goto bad_load_icode_free_pghdrs;
     }
     
     for (struct proghdr *ph = phdrs; ph < phdrs+elfheader.e_phnum; ph++) {
-        if (ph->p_type != ELF_PT_LOAD) {
-            continue;
-        }
-
-        vm_flags = 0, pte_perm = PTE_U;
-        if (ph->p_type == ELF_PF_R) 
-            vm_flags |= VM_READ;
-        if (ph->p_type == ELF_PF_W) {
-            // TODO: ?
-            vm_flags |= VM_WRITE;
-            pte_perm |= PTE_W;
-        }
-        if (ph->p_type == ELF_PF_X)
-            vm_flags |= VM_EXEC;
-
-        //    (3.3) call mm_map to build vma related to TEXT/DATA
-        if ((ret = mm_map(mm, ph->p_va, ph->p_memsz, vm_flags, NULL)) != 0) {
+        if ((ret = load_icode_proghdr(fd, ph, mm)) != 0) {
             goto bad_load_icode_unmap_mm;
         }
-
-        //    (3.4) callpgdir_alloc_page to allocate page for TEXT/DATA, read contents in file
-        //          and copy them into the new allocated pages
-        struct Page *pg;
-        uintptr_t va, start, end, off, pgp;
-        size_t sz;
-
-        start = ph->p_va;
-        end = ph->p_va + ph->p_filesz;
-        va = ROUNDDOWN(start, PGSIZE);
-        off = 0; // offset of file
-
-        while (start < end) {
-            ret = -E_NO_MEM;
-            if ((pg=pgdir_alloc_page(mm->pgdir, va, pte_perm)) == NULL) {
-                goto bad_load_icode_unmap_mm;
-            }
-
-            pgp = (uintptr_t)page2kva(pg) + start-va;
-            sz = end-va<PGSIZE ? end-start : PGSIZE-(start-va);
-
-            if ((ret = load_icode_read(fd, (void*) pgp, sz, ph->p_offset+off)) != 0) {
-                goto bad_load_icode_unmap_mm;
-            }
-
-
-            // only may be used at the last loop, set the rest to 0
-            pgp = pgp+sz;
-            memset((void*)pgp, 0, ROUNDUP(pgp, PGSIZE)-pgp); 
-
-            va += PGSIZE;
-            start = va;
-            off += sz;
-        }
-
-        //    (3.5) callpgdir_alloc_page to allocate pages for BSS, memset zero in these pages
-        end = ph->p_va + ph->p_memsz;
-        while (start < end) {
-            ret = -E_NO_MEM;
-            // use va, for the case that ph->file_sz == 0
-            if ((pg=pgdir_alloc_page(mm->pgdir, va, pte_perm)) == NULL) {
-                goto bad_load_icode_unmap_mm;
-            }
-
-            pgp = (uintptr_t)page2kva(pg);
-            memset((void*)pgp, 0, PGSIZE); 
-
-            va += PGSIZE;
-            start = va;
-        }
     }
+
+    sysfile_close(fd);
+    
     // (4) call mm_map to setup user stack, and put parameters into user stack
-    vm_flags = VM_STACK | VM_READ; //TODO:?
-    pte_perm = PTE_W | PTE_U;
+    vm_flags = VM_STACK | VM_READ | VM_WRITE;
     if ((ret=mm_map(mm, USTACKTOP-USTACKSIZE, USTACKSIZE, vm_flags, NULL)) != 0) {
         goto bad_load_icode_unmap_mm;
     }
 
-    struct Page *pg;
-    ret = -E_NO_MEM;
-    if ((pg=pgdir_alloc_page(mm->pgdir, USTACKSIZE-USTACKSIZE, pte_perm)) == NULL) {
+    // (5) setup current process's mm, cr3, reset pgidr (using lcr3 MARCO)
+    // DONE: do not dec count of current->mm?
+    // has done this in do_execve
+    mm_count_inc(mm);
+    current->mm = mm;
+    current->cr3 = PADDR(mm->pgdir);
+    lcr3(current->cr3);
+
+    // (6) setup uargc and uargv in user stacks
+    uintptr_t stacktop;
+    if ((ret = load_icode_setup_arg(argc, kargv, mm, &stacktop)) != 0) {
         goto bad_load_icode_unmap_mm;
     }
-    // push parameters into user stack
-    // (6) setup uargc and uargv in user stacks
-    void *pgp = page2kva(pg);
-    *(char ***)pgp = kargv;
-    pgp = (void *)((intptr_t)pgp + sizeof(char**));
-    *(int *)pgp = argc;
-
-    // (5) setup current process's mm, cr3, reset pgidr (using lcr3 MARCO)
-    //TODO: do not dec count of current->mm?
-    current->mm = mm;
-    current->cr3 = (intptr_t)mm->pgdir;
-    lcr3(current->cr3);
 
     // (7) setup trapframe for user environment
     struct trapframe *tf = current->tf;
@@ -727,8 +785,9 @@ load_icode(int fd, int argc, char **kargv) {
 
     tf->tf_cs = USER_CS;
     tf->tf_ds = tf->tf_es = tf->tf_ss = USER_DS;
-    tf->tf_esp = USTACKTOP-USTACKSIZE;
+    tf->tf_esp = stacktop;
     tf->tf_eip = elfheader.e_entry;
+    tf->tf_eflags |= FL_IF; // enable interrupt
 
     kfree(phdrs);
     return 0;
@@ -740,7 +799,7 @@ bad_load_icode_free_pghdrs:
 bad_load_icode_free_pgdir:
     put_pgdir(mm);
 bad_load_icode_free_mm:
-    mm_destroy(current->mm);
+    mm_destroy(mm);
 bad_load_icode:
     return ret;
 }
@@ -990,7 +1049,8 @@ init_main(void *arg) {
     if (pid <= 0) {
         panic("create user_main failed.\n");
     }
- extern void check_sync(void);
+
+    extern void check_sync(void);
     check_sync();                // check philosopher sync problem
 
     while (do_wait(0, NULL) == 0) {
@@ -1004,7 +1064,8 @@ init_main(void *arg) {
     assert(nr_process == 2);
     assert(list_next(&proc_list) == &(initproc->list_link));
     assert(list_prev(&proc_list) == &(initproc->list_link));
-
+    // assert(nr_free_pages_store == nr_free_pages());
+    // assert(kernel_allocated_store == kallocated());
     cprintf("init check memory pass.\n");
     return 0;
 }
