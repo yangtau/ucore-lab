@@ -21,3 +21,4 @@ chytesting
 disk0
 *.orig
 compile_commands.json
+.vscode/
